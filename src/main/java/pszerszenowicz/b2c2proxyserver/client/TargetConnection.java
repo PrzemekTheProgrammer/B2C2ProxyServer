@@ -11,6 +11,9 @@ import io.netty.handler.codec.http.HttpObjectAggregator;
 import io.netty.handler.codec.http.websocketx.*;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
+import io.netty.handler.ssl.SslContext;
+import io.netty.handler.ssl.SslContextBuilder;
+import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import pszerszenowicz.b2c2proxyserver.server.Server;
 
 import java.net.URI;
@@ -26,6 +29,8 @@ public class TargetConnection {
     public void start(Server server) throws Exception {
         URI uri = new URI("ws://" + targetHost + ":" + targetPort + "/");
         EventLoopGroup group = new NioEventLoopGroup();
+        final SslContext sslCtx = SslContextBuilder.forClient()
+                .trustManager(InsecureTrustManagerFactory.INSTANCE).build();
         try {
             final WebSocketClientHandler handler =
                     new WebSocketClientHandler(
@@ -42,6 +47,7 @@ public class TargetConnection {
                         protected void initChannel(SocketChannel socketChannel) throws Exception {
                             socketChannel.pipeline().addLast(
                                     new LoggingHandler(LogLevel.INFO),
+                                    sslCtx.newHandler(socketChannel.alloc(),targetHost,targetPort),
                                     new HttpClientCodec(),
                                     new HttpObjectAggregator(9182),
                                     handler);
