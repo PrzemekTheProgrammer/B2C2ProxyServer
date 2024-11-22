@@ -5,11 +5,11 @@ import pszerszenowicz.b2c2proxyserver.server.Server;
 
 public class Proxy {
 
-    public static void main(String[] args) throws InterruptedException {
+    public static void main(String[] args) throws Exception {
         start();
     }
 
-    private static void start() throws InterruptedException {
+    private static void start() throws Exception {
 
         TargetConnection targetConnection = new TargetConnection();
         Server server = new Server();
