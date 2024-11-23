@@ -6,15 +6,21 @@ import io.netty.handler.codec.http.websocketx.*;
 import io.netty.util.CharsetUtil;
 import pszerszenowicz.b2c2proxyserver.server.Server;
 
+import javax.net.ssl.SSLException;
+import java.net.URISyntaxException;
+
 public class WebSocketClientHandler extends SimpleChannelInboundHandler<Object> {
 
     private final WebSocketClientHandshaker handshaker;
     private ChannelPromise handshakeFuture;
     private Server server;
+    private TargetConnection targetConnection;
+    private boolean reconnectEnabled = true;
 
-    public WebSocketClientHandler(WebSocketClientHandshaker handshaker, Server server) {
+    public WebSocketClientHandler(WebSocketClientHandshaker handshaker, Server server, TargetConnection targetConnection) {
         this.handshaker = handshaker;
         this.server = server;
+        this.targetConnection = targetConnection;
     }
 
     public ChannelFuture handshakeFuture() {
@@ -32,8 +38,14 @@ public class WebSocketClientHandler extends SimpleChannelInboundHandler<Object> 
     }
 
     @Override
-    public void channelInactive(ChannelHandlerContext ctx) {
-        System.out.println("WebSocket Client disconnected!");
+    public void channelInactive(ChannelHandlerContext ctx) throws InterruptedException, URISyntaxException, SSLException {
+        if (reconnectEnabled) {
+            reconnectEnabled = false;
+            targetConnection.connect(server);
+        } else {
+            server.deleteUnusedTargetConnection(targetConnection);
+            System.out.println("WebSocket Client disconnected!");
+        }
     }
 
     @Override
@@ -62,7 +74,7 @@ public class WebSocketClientHandler extends SimpleChannelInboundHandler<Object> 
         if (frame instanceof TextWebSocketFrame textFrame) {
             String msgReceived = textFrame.text();
             System.out.println("WebSocket Client received message: " + msgReceived);
-            server.sendMessage(msgReceived);
+            server.sendMessage(msgReceived, targetConnection);
         } else if (frame instanceof PongWebSocketFrame) {
             System.out.println("WebSocket Client received pong");
         } else if (frame instanceof CloseWebSocketFrame) {
@@ -73,10 +85,13 @@ public class WebSocketClientHandler extends SimpleChannelInboundHandler<Object> 
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        cause.printStackTrace();
         if (!handshakeFuture.isDone()) {
             handshakeFuture.setFailure(cause);
         }
         ctx.close();
+    }
+
+    public void disableReconnect() {
+        this.reconnectEnabled = false;
     }
 }

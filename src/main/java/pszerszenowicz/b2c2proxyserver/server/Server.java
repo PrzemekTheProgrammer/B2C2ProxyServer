@@ -6,18 +6,20 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
-import io.netty.handler.codec.http.websocketx.WebSocketFrame;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import pszerszenowicz.b2c2proxyserver.client.TargetConnection;
 
+import java.util.HashMap;
+import java.util.Map;
+
+
 public class Server {
 
     private final int port = 8080;
+    private Map<TargetConnection,Channel> channels = new HashMap<>();
 
-    private Channel channel;
-
-    public void start(TargetConnection targetConnection) throws InterruptedException {
+    public void start() throws InterruptedException {
         EventLoopGroup bossGroup = new NioEventLoopGroup(1);
         EventLoopGroup workerGroup = new NioEventLoopGroup();
         try {
@@ -28,10 +30,12 @@ public class Server {
                     .childHandler(new ChannelInitializer<SocketChannel>() {
                         @Override
                         protected void initChannel(SocketChannel socketChannel) throws Exception {
-                            channel = socketChannel;
+                            TargetConnection targetConnection = new TargetConnection();
                             socketChannel.pipeline().addLast(
                                     new WebSocketServerInitializer(targetConnection)
                             );
+                            targetConnection.start(Server.this);
+                            channels.put(targetConnection,socketChannel);
                         }
                     });
             ChannelFuture f = b.bind(port).sync();
@@ -42,22 +46,21 @@ public class Server {
                     workerGroup.shutdownGracefully();
                 }
             });
-        } catch (Exception e) {
+        } catch (InterruptedException e) {
             bossGroup.shutdownGracefully();
             workerGroup.shutdownGracefully();
         }
     }
 
-    public void sendMessage(String message) {
+    public void sendMessage(String message, TargetConnection targetConnection) {
+        Channel channel = channels.get(targetConnection);
         if (channel != null && channel.isActive()) {
             TextWebSocketFrame toSend = new TextWebSocketFrame(message);
             channel.writeAndFlush(toSend);
         }
     }
 
-    public void sendMessage(WebSocketFrame message) {
-        if (channel != null && channel.isActive()) {
-            channel.writeAndFlush(message);
-        }
+    public void deleteUnusedTargetConnection(TargetConnection targetConnection) {
+        channels.remove(targetConnection);
     }
 }

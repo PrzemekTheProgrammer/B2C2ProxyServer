@@ -16,54 +16,41 @@ import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import pszerszenowicz.b2c2proxyserver.server.Server;
 
+import javax.net.ssl.SSLException;
 import java.net.URI;
+import java.net.URISyntaxException;
 
 public class TargetConnection {
 
     //    private final String targetHost = "wss://socket.uat.b2c2.net/quotes";
     private final String targetHost = "localhost";
     private final int targetPort = 8081;
-
+    private Bootstrap bootstrap;
     private Channel channel;
+    private final EventLoopGroup group = new NioEventLoopGroup();
 
     public void start(Server server) throws Exception {
-        URI uri = new URI("ws://" + targetHost + ":" + targetPort + "/");
-        EventLoopGroup group = new NioEventLoopGroup();
-        final SslContext sslCtx = SslContextBuilder.forClient()
-                .trustManager(InsecureTrustManagerFactory.INSTANCE).build();
         try {
-            final WebSocketClientHandler handler =
-                    new WebSocketClientHandler(
-                            WebSocketClientHandshakerFactory.newHandshaker(
-                                    uri, WebSocketVersion.V13, null, true, new DefaultHttpHeaders()),
-                            server
-                    );
-            Bootstrap bootstrap = new Bootstrap();
-            bootstrap.group(group)
-                    .channel(NioSocketChannel.class)
-                    .handler(new ChannelInitializer<SocketChannel>() {
-
-                        @Override
-                        protected void initChannel(SocketChannel socketChannel) throws Exception {
-                            socketChannel.pipeline().addLast(
-                                    new LoggingHandler(LogLevel.INFO),
-                                    sslCtx.newHandler(socketChannel.alloc(),targetHost,targetPort),
-                                    new HttpClientCodec(),
-                                    new HttpObjectAggregator(9182),
-                                    handler);
-                        }
-                    });
-            ChannelFuture future = bootstrap.connect(targetHost, targetPort).sync();
-            channel = future.channel();
-            future.channel().closeFuture().addListener(new ChannelFutureListener() {
-                @Override
-                public void operationComplete(ChannelFuture channelFuture) throws Exception {
-                    group.shutdownGracefully();
-                }
-            });
-        } catch (Exception e) {
-            group.shutdownGracefully();
+            connect(server);
+        } catch (SSLException | InterruptedException | URISyntaxException e) {
+            stop();
         }
+    }
+
+    public void stop() {
+        if (channel != null) {
+            channel.pipeline().get(WebSocketClientHandler.class).disableReconnect();
+            if (channel.isActive()) {
+                channel.close();
+            }
+        }
+        group.shutdownGracefully();
+    }
+
+    public void connect(Server server) throws InterruptedException, URISyntaxException, SSLException {
+        configureBootstrap(server, group, TargetConnection.this);
+        ChannelFuture future = bootstrap.connect(targetHost, targetPort).sync();
+        channel = future.channel();
     }
 
     public void sendMessage(String message) {
@@ -73,16 +60,31 @@ public class TargetConnection {
         }
     }
 
-    public void sendMessage(WebSocketFrame message) {
-        if (channel != null && channel.isActive()) {
-            channel.writeAndFlush(message);
-        }
-    }
+    private void configureBootstrap(Server server, EventLoopGroup group, TargetConnection targetConnection) throws SSLException, URISyntaxException {
+        URI uri = new URI("ws://" + targetHost + ":" + targetPort + "/");
+        final SslContext sslCtx = SslContextBuilder.forClient()
+                .trustManager(InsecureTrustManagerFactory.INSTANCE).build();
+        final WebSocketClientHandler handler =
+                new WebSocketClientHandler(
+                        WebSocketClientHandshakerFactory.newHandshaker(
+                                uri, WebSocketVersion.V13, null, true, new DefaultHttpHeaders()),
+                        server,
+                        targetConnection
+                );
+        bootstrap = new Bootstrap();
+        bootstrap.group(group)
+                .channel(NioSocketChannel.class)
+                .handler(new ChannelInitializer<SocketChannel>() {
 
-    public void closeChannel() {
-        if (channel != null && channel.isActive()) {
-            channel.close();
-        }
+                    @Override
+                    protected void initChannel(SocketChannel socketChannel) throws Exception {
+                        socketChannel.pipeline().addLast(
+                                new LoggingHandler(LogLevel.INFO),
+                                sslCtx.newHandler(socketChannel.alloc(), targetHost, targetPort),
+                                new HttpClientCodec(),
+                                new HttpObjectAggregator(9182),
+                                handler);
+                    }
+                });
     }
-
 }

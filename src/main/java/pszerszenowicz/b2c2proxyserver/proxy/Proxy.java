@@ -10,12 +10,7 @@ public class Proxy {
     }
 
     private static void start() throws Exception {
-
-        TargetConnection targetConnection = new TargetConnection();
         Server server = new Server();
-
-        server.start(targetConnection);
-        targetConnection.start(server);
-
+        server.start();
     }
 }
